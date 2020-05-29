@@ -11,12 +11,14 @@ int main()
 {
     int sock;
     int size;
+    int check;
     int bytes_read;
     char buff[1024];
     char buff2[1024];
     char message[1024];
     char source[INET_ADDRSTRLEN];
     struct sockaddr_in server;
+    struct iphdr* ip;
     struct udphdr* udp;
     struct udphdr* udp_header;
     struct iphdr* ip_header;
@@ -28,11 +30,30 @@ int main()
         exit(1);
     }
 
+    check = 1;
+    if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &check, sizeof(check)) == -1)
+    {
+        fprintf(stderr, "Incorrect client setsockopt\n");
+        exit(1);
+    }
+
     server.sin_family = AF_INET;
     server.sin_port = htons(0xAABB);
     server.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-    udp = (struct udphdr*) buff2;
+    ip = (struct iphdr*) buff2;
+    udp = (struct udphdr*) (buff2 + sizeof(struct iphdr));
+
+    ip->version = 4;
+    ip->ihl = 5;
+    ip->tos = 0;
+    ip->id = 0;
+    ip->ttl = 64; 
+    ip->frag_off = 0;
+    ip->protocol = IPPROTO_UDP;
+    ip->check = 0;
+    ip->saddr = inet_addr("127.0.0.1");
+    ip->daddr = inet_addr("127.0.0.1");
 
     udp->source = htons(0xBBAA);
     udp->dest = server.sin_port;
@@ -42,17 +63,18 @@ int main()
     while(1)
     {
         fgets(message, 1024, stdin);
-        memcpy(buff2 + sizeof(*udp), message, sizeof(message));
+        memcpy(buff2 + sizeof(*ip) + sizeof(*udp), message, sizeof(message));
 
         size = sizeof(server);
-        bytes_read = sendto(sock, buff2, (sizeof(struct udphdr) + sizeof(message)), 0, (struct sockaddr*) &server, size);
+        bytes_read = sendto(sock, buff2, (sizeof(*ip) + sizeof(*udp) + sizeof(message)), 0, (struct sockaddr*) &server, size);
         if (bytes_read == -1)
         {
-            fprintf(stderr, "Incorrect client recvfrom\n");
+            fprintf(stderr, "Incorrect client send\n");
+            perror("sendto()");
             exit(1);
         }
 
-        printf("Ingoing: %s", buff2 + sizeof(*udp));
+        printf("Ingoing: %s", buff2 + sizeof(*ip) + sizeof(*udp));
         bytes_read = recvfrom(sock, buff, 1024, 0, NULL, NULL);
         if (bytes_read == -1)
         {
